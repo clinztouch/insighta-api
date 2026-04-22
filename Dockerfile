@@ -13,3 +13,4 @@ RUN ls -la dist/
 EXPOSE 3000
 
 CMD ["node", "dist/main"]
+# force rebuild
