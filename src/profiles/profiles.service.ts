@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { GetProfilesDto } from 'dto/get-profiles.dto';
+import { GetProfilesDto } from './dto/get-profiles.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 
