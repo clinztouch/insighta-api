@@ -16,7 +16,7 @@ import * as crypto from 'crypto';
 import { PrismaService } from 'src/prisma/prisma.service';
 
 function generateCodeVerifier(): string {
-  return crypto.randomBytes(32).toString('base64url');
+  return crypto.randomBytes(64).toString('base64url');
 }
 
 function generateCodeChallenge(verifier: string): string {
