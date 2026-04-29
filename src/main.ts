@@ -13,7 +13,7 @@ async function bootstrap() {
   app.use(cookieParser());
 
   app.enableCors({
-    origin: process.env.WEB_PORTAL_URL || 'http://localhost:3001',
+   origin: process.env.WEB_PORTAL_URL || 'https://insighta-web-production-8251.up.railway.app',
     credentials: true,
   });
 
