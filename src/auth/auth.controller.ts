@@ -154,10 +154,9 @@ export class AuthController {
       maxAge: 5 * 60 * 1000,
     });
 
-    const webPortalUrl =
-      process.env.WEB_PORTAL_URL || 'http://localhost:3001';
-
-    return res.redirect(`${webPortalUrl}/dashboard`);
+    
+const webPortalUrl = process.env.WEB_PORTAL_URL || 'http://localhost:3001';
+return res.redirect(`${webPortalUrl}/dashboard`);
   }
 
  
