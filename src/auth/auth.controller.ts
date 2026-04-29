@@ -30,17 +30,21 @@ export class AuthController {
     private prisma: PrismaService,
   ) {}
 
+ 
+  // GITHUB OAUTH START
   @Public()
   @Get('github')
   async githubLogin(@Res() res: Response, @Query('state') state?: string) {
     const clientId = process.env.GITHUB_CLIENT_ID;
-    const callbackUrl = encodeURIComponent(process.env.GITHUB_CALLBACK_URL!);
+    const callbackUrl = process.env.GITHUB_CALLBACK_URL!; // FIXED (no encodeURIComponent)
 
     const codeVerifier = generateCodeVerifier();
     const codeChallenge = generateCodeChallenge(codeVerifier);
-    const stateParam = state || `web_${crypto.randomBytes(8).toString('hex')}`;
 
-    // Store verifier in DB keyed by state
+    const stateParam =
+      state || `web_${crypto.randomBytes(8).toString('hex')}`;
+
+    // Store PKCE verifier in DB (secure + scalable)
     await this.prisma.pkceVerifier.create({
       data: {
         state: stateParam,
@@ -58,9 +62,11 @@ export class AuthController {
       `&code_challenge=${codeChallenge}` +
       `&code_challenge_method=S256`;
 
-    res.redirect(url);
+    return res.redirect(url);
   }
 
+
+  // GITHUB CALLBACK
   @Public()
   @Get('github/callback')
   async githubCallback(
@@ -71,7 +77,7 @@ export class AuthController {
     if (!code) throw new UnauthorizedException('No code provided');
     if (!state) throw new UnauthorizedException('No state provided');
 
-    // Retrieve verifier from DB
+    // Get PKCE record
     const pkce = await this.prisma.pkceVerifier.findUnique({
       where: { state },
     });
@@ -80,10 +86,10 @@ export class AuthController {
       throw new UnauthorizedException('Invalid or expired state parameter');
     }
 
-    // Delete used verifier immediately
+    // delete immediately (one-time use)
     await this.prisma.pkceVerifier.delete({ where: { state } });
 
-    // Exchange code with GitHub
+    // Exchange code for token
     const tokenRes = await axios.post(
       'https://github.com/login/oauth/access_token',
       {
@@ -101,9 +107,11 @@ export class AuthController {
       throw new UnauthorizedException('GitHub auth failed');
     }
 
-    // Get user info from GitHub
+    // Fetch GitHub user
     const userRes = await axios.get('https://api.github.com/user', {
-      headers: { Authorization: `Bearer ${githubAccessToken}` },
+      headers: {
+        Authorization: `Bearer ${githubAccessToken}`,
+      },
     });
 
     const githubUser = {
@@ -115,21 +123,30 @@ export class AuthController {
 
     const tokens = await this.authService.handleGithubCallback(githubUser);
 
-    // CLI flow
+ 
+    // CLI FLOW
     if (state.startsWith('cli_')) {
-      const port = state.split('_')[1];
+      const parts = state.split('_');
+      const port = parts[1];
+
+      if (!port || !/^\d+$/.test(port)) {
+        throw new UnauthorizedException('Invalid CLI state');
+      }
+
       return res.redirect(
         `http://localhost:${port}/callback?access_token=${tokens.access_token}&refresh_token=${tokens.refresh_token}`,
       );
     }
 
-    // Web flow — HTTP-only cookies
+  
+    // WEB FLOW (HTTP-only cookies)
     res.cookie('access_token', tokens.access_token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       maxAge: 3 * 60 * 1000,
     });
+
     res.cookie('refresh_token', tokens.refresh_token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -137,10 +154,14 @@ export class AuthController {
       maxAge: 5 * 60 * 1000,
     });
 
-    const webPortalUrl = process.env.WEB_PORTAL_URL || 'http://localhost:3001';
+    const webPortalUrl =
+      process.env.WEB_PORTAL_URL || 'http://localhost:3001';
+
     return res.redirect(`${webPortalUrl}/dashboard`);
   }
 
+ 
+  // REFRESH TOKEN
   @Public()
   @Post('refresh')
   async refresh(
@@ -160,6 +181,7 @@ export class AuthController {
         sameSite: 'lax',
         maxAge: 3 * 60 * 1000,
       });
+
       res.cookie('refresh_token', tokens.refresh_token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
@@ -171,6 +193,8 @@ export class AuthController {
     return res.json({ status: 'success', ...tokens });
   }
 
+ 
+  // LOGOUT
   @Post('logout')
   async logout(
     @Req() req: Request,
@@ -178,15 +202,24 @@ export class AuthController {
     @Body('refresh_token') refreshToken?: string,
   ) {
     const token = refreshToken || req.cookies?.refresh_token;
-    if (token) await this.authService.logout(token);
+
+    if (token) {
+      await this.authService.logout(token);
+    }
 
     res.clearCookie('access_token');
     res.clearCookie('refresh_token');
+
     return res.json({ status: 'success', message: 'Logged out' });
   }
 
+
+  // ME
   @Get('me')
   whoami(@Req() req: Request) {
-    return { status: 'success', data: req.user };
+    return {
+      status: 'success',
+      data: req.user,
+    };
   }
 }
