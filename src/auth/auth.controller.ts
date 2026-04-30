@@ -30,21 +30,34 @@ export class AuthController {
     private prisma: PrismaService,
   ) {}
 
- 
+  private setCookies(res: Response, accessToken: string, refreshToken: string) {
+    res.cookie('access_token', accessToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'none',
+      maxAge: 15 * 60 * 1000, // 15 mins
+    });
+
+    res.cookie('refresh_token', refreshToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'none',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+  }
+
   // GITHUB OAUTH START
   @Public()
   @Get('github')
   async githubLogin(@Res() res: Response, @Query('state') state?: string) {
     const clientId = process.env.GITHUB_CLIENT_ID;
-    const callbackUrl = process.env.GITHUB_CALLBACK_URL!; // FIXED (no encodeURIComponent)
+    const callbackUrl = process.env.GITHUB_CALLBACK_URL!;
 
     const codeVerifier = generateCodeVerifier();
     const codeChallenge = generateCodeChallenge(codeVerifier);
 
-    const stateParam =
-      state || `web_${crypto.randomBytes(8).toString('hex')}`;
+    const stateParam = state || `web_${crypto.randomBytes(8).toString('hex')}`;
 
-    // Store PKCE verifier in DB (secure + scalable)
     await this.prisma.pkceVerifier.create({
       data: {
         state: stateParam,
@@ -65,7 +78,6 @@ export class AuthController {
     return res.redirect(url);
   }
 
-
   // GITHUB CALLBACK
   @Public()
   @Get('github/callback')
@@ -77,7 +89,6 @@ export class AuthController {
     if (!code) throw new UnauthorizedException('No code provided');
     if (!state) throw new UnauthorizedException('No state provided');
 
-    // Get PKCE record
     const pkce = await this.prisma.pkceVerifier.findUnique({
       where: { state },
     });
@@ -86,10 +97,8 @@ export class AuthController {
       throw new UnauthorizedException('Invalid or expired state parameter');
     }
 
-    // delete immediately (one-time use)
     await this.prisma.pkceVerifier.delete({ where: { state } });
 
-    // Exchange code for token
     const tokenRes = await axios.post(
       'https://github.com/login/oauth/access_token',
       {
@@ -107,7 +116,6 @@ export class AuthController {
       throw new UnauthorizedException('GitHub auth failed');
     }
 
-    // Fetch GitHub user
     const userRes = await axios.get('https://api.github.com/user', {
       headers: {
         Authorization: `Bearer ${githubAccessToken}`,
@@ -123,7 +131,6 @@ export class AuthController {
 
     const tokens = await this.authService.handleGithubCallback(githubUser);
 
- 
     // CLI FLOW
     if (state.startsWith('cli_')) {
       const parts = state.split('_');
@@ -138,28 +145,13 @@ export class AuthController {
       );
     }
 
-  
-    // WEB FLOW (HTTP-only cookies)
-    res.cookie('access_token', tokens.access_token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 3 * 60 * 1000,
-    });
+    // WEB FLOW
+    this.setCookies(res, tokens.access_token, tokens.refresh_token);
 
-    res.cookie('refresh_token', tokens.refresh_token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 5 * 60 * 1000,
-    });
-
-    
-const webPortalUrl = process.env.WEB_PORTAL_URL || 'http://localhost:3001';
-return res.redirect(`${webPortalUrl}/dashboard`);
+    const webPortalUrl = process.env.WEB_PORTAL_URL || 'http://localhost:3001';
+    return res.redirect(`${webPortalUrl}/dashboard`);
   }
 
- 
   // REFRESH TOKEN
   @Public()
   @Post('refresh')
@@ -174,25 +166,12 @@ return res.redirect(`${webPortalUrl}/dashboard`);
     const tokens = await this.authService.refreshTokens(token);
 
     if (req.cookies?.refresh_token) {
-      res.cookie('access_token', tokens.access_token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 3 * 60 * 1000,
-      });
-
-      res.cookie('refresh_token', tokens.refresh_token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 5 * 60 * 1000,
-      });
+      this.setCookies(res, tokens.access_token, tokens.refresh_token);
     }
 
     return res.json({ status: 'success', ...tokens });
   }
 
- 
   // LOGOUT
   @Post('logout')
   async logout(
@@ -211,7 +190,6 @@ return res.redirect(`${webPortalUrl}/dashboard`);
 
     return res.json({ status: 'success', message: 'Logged out' });
   }
-
 
   // ME
   @Get('me')
