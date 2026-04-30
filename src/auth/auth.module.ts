@@ -12,10 +12,12 @@ import { JwtStrategy } from './jwt.strategy';
     PrismaModule,
     UsersModule,
     PassportModule,
-    JwtModule.register({
-      secret: process.env.JWT_SECRET,
-      signOptions: { expiresIn: '3m' },
-    }),
+    JwtModule.registerAsync({
+    useFactory: () => ({
+    secret: process.env.JWT_SECRET,
+    signOptions: { expiresIn: '3m' },
+  }),
+}),
   ],
   providers: [AuthService, JwtStrategy],
   controllers: [AuthController],
