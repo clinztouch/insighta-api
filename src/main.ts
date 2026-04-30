@@ -14,7 +14,7 @@ async function bootstrap() {
 
 app.enableCors({
   origin: [
-    process.env.WEB_PORTAL_URL || 'https://insighta-web-production-8251.up.railway.app',
+    process.env.WEB_PORTAL_URL || 'https://insighta-web-cb5d.onrender.com',
     'http://localhost:3001',
   ],
   credentials: true,
