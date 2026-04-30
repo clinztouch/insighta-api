@@ -150,6 +150,8 @@ export class AuthController {
 return res.redirect(
   `${webPortalUrl}/auth/callback?access_token=${tokens.access_token}&refresh_token=${tokens.refresh_token}`
 );
+} 
+
 
   // REFRESH TOKEN
   @Public()
