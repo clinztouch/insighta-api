@@ -12,10 +12,13 @@ async function bootstrap() {
   app.use(helmet());
   app.use(cookieParser());
 
-  app.enableCors({
-   origin: process.env.WEB_PORTAL_URL || 'https://insighta-web-production-8251.up.railway.app',
-    credentials: true,
-  });
+app.enableCors({
+  origin: [
+    process.env.WEB_PORTAL_URL || 'https://insighta-web-production-8251.up.railway.app',
+    'http://localhost:3001',
+  ],
+  credentials: true,
+});
 
   app.useGlobalPipes(
     new ValidationPipe({
