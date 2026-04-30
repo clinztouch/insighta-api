@@ -7,6 +7,9 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 
 async function bootstrap() {
+  console.log('WEB_PORTAL_URL:', process.env.WEB_PORTAL_URL);
+  console.log('JWT_SECRET exists:', !!process.env.JWT_SECRET);
+  
   const app = await NestFactory.create(AppModule);
 
   app.use(helmet());
