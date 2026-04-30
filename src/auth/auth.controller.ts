@@ -147,9 +147,9 @@ export class AuthController {
 
 // WEB FLOW
 const webPortalUrl = process.env.WEB_PORTAL_URL || 'http://localhost:3001';
-return res.redirect(
-  `${webPortalUrl}/auth/callback?access_token=${tokens.access_token}&refresh_token=${tokens.refresh_token}`
-);
+const redirectUrl = `${webPortalUrl}/auth/callback?access_token=${tokens.access_token}&refresh_token=${tokens.refresh_token}`;
+console.log('Redirecting to:', redirectUrl);
+return res.redirect(redirectUrl);
   }
 
 
