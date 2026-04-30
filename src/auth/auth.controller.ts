@@ -146,11 +146,10 @@ export class AuthController {
     }
 
     // WEB FLOW
-    this.setCookies(res, tokens.access_token, tokens.refresh_token);
-
-    const webPortalUrl = process.env.WEB_PORTAL_URL || 'http://localhost:3001';
-    return res.redirect(`${webPortalUrl}/dashboard`);
-  }
+  const webPortalUrl = process.env.WEB_PORTAL_URL || 'http://localhost:3001';
+return res.redirect(
+  `${webPortalUrl}/auth/callback?access_token=${tokens.access_token}&refresh_token=${tokens.refresh_token}`
+);
 
   // REFRESH TOKEN
   @Public()
