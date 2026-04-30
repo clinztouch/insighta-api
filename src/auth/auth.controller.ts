@@ -200,4 +200,19 @@ return res.redirect(redirectUrl);
       data: req.user,
     };
   }
+
+  // TEST LOGIN 
+  @Public()
+  @Post('test/login')
+  async testLogin(@Body('role') role: string) {
+    const userRole = role || 'analyst';
+
+    const user = await this.prisma.user.findFirst({
+      where: { role: userRole, is_active: true },
+    });
+
+    if (!user) throw new UnauthorizedException(`No ${userRole} user found`);
+
+    return this.authService.issueTokens(user);
+  }
 }

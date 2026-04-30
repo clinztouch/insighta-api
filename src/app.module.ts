@@ -19,6 +19,7 @@ import { LoggingInterceptor } from './common/middleware/interceptors/logging.int
     UsersModule,
     ThrottlerModule.forRoot([
       { name: 'default', ttl: 60000, limit: 60 },
+      { name: 'auth', ttl: 60000, limit: 10 },
     ]),
   ],
   controllers: [AppController],
@@ -26,13 +27,13 @@ import { LoggingInterceptor } from './common/middleware/interceptors/logging.int
     AppService,
     { provide: APP_GUARD, useClass: GlobalAuthGuard },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
-    {provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
   ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
-    .apply(ApiVersionMiddleware)
-    .forRoutes('api/*path');
+      .apply(ApiVersionMiddleware)
+      .forRoutes('api/*path');
   }
 }
