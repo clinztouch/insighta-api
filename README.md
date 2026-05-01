@@ -988,3 +988,109 @@ npm run test:cov
 ## License
 
 This project is part of the Insighta Labs Backend Wizard Stage 2 challenge.
+
+
+
+# Insighta Labs+ API
+
+A secure demographic intelligence platform built with NestJS, Prisma, and PostgreSQL.
+
+## Live URLs
+- **Backend API**: https://insighta-api-production-0a80.up.railway.app
+- **Web Portal**: https://insighta-web-production-df68.up.railway.app
+
+## Repositories
+- **Backend**: https://github.com/clinztouch/insighta-api
+- **CLI**: https://github.com/clinztouch/insighta-cli
+- **Web Portal**: https://github.com/clinztouch/insighta-web
+
+## System Architecture
+Three-part system:
+- **Backend API** — NestJS + Prisma + PostgreSQL. Owns OAuth, users, roles, tokens, profiles, rate limiting, logging.
+- **CLI** — Local command-line client. Authenticates via backend, stores tokens in ~/.insighta/credentials.json.
+- **Web Portal** — Express + HTML. Stores tokens in HTTP-only cookies, proxies /api/* to backend.
+
+## Authentication Flow
+
+### Web Flow
+1. User clicks "Continue with GitHub" on web portal
+2. Frontend redirects to backend `/auth/github`
+3. Backend generates PKCE verifier, redirects to GitHub
+4. GitHub redirects to backend `/auth/github/callback`
+5. Backend exchanges code, creates/retrieves user, issues tokens
+6. Backend redirects to web portal `/auth/callback?access_token=...&refresh_token=...`
+7. Web portal sets HTTP-only cookies, redirects to `/dashboard`
+
+### CLI Flow
+1. User runs `insighta login`
+2. CLI starts local server, opens browser to backend `/auth/github?state=cli_{port}`
+3. GitHub redirects to backend `/auth/github/callback`
+4. Backend detects CLI state, redirects to `localhost:{port}/callback?access_token=...&refresh_token=...`
+5. CLI stores tokens in `~/.insighta/credentials.json`
+
+## Token Handling
+- **Access token**: JWT, expires in 3 minutes
+- **Refresh token**: Random hex, expires in 5 minutes, single-use
+- Old refresh token invalidated immediately on use
+- New token pair issued on every refresh
+
+## Role Enforcement
+- **admin**: Full access — can create, delete, query profiles
+- **analyst**: Read-only — can only read and search profiles
+- Default role: analyst
+- Enforced via GlobalAuthGuard + JWT strategy on all /api/* endpoints
+
+## Auth Endpoints
+- `GET /auth/github` — Redirect to GitHub OAuth
+- `GET /auth/github/callback` — Handle OAuth callback
+- `POST /auth/refresh` — Refresh tokens
+- `POST /auth/logout` — Invalidate refresh token
+- `GET /auth/me` — Get current user
+- `POST /auth/test/login` — Get tokens for testing (role: admin|analyst)
+
+## Profile Endpoints
+All require `X-API-Version: 1` header.
+
+- `GET /api/profiles` — List profiles with filters
+- `GET /api/profiles/search?q=` — Natural language search
+- `GET /api/profiles/export?format=csv` — Export CSV
+- `GET /api/profiles/:id` — Get profile by ID
+- `POST /api/profiles` — Create profile (admin only)
+
+## Rate Limiting
+- Auth endpoints: 10 requests/minute
+- All other endpoints: 60 requests/minute per user
+
+## CLI Usage
+```bash
+insighta login
+insighta logout
+insighta whoami
+
+insighta profiles list
+insighta profiles list --gender male --country NG
+insighta profiles get <id>
+insighta profiles search "young males from nigeria"
+insighta profiles create --name "Harriet Tubman"
+insighta profiles export --format csv
+```
+
+## Natural Language Search
+Rule-based parsing supports: gender, age groups, age ranges, country names.
+
+## Setup
+```bash
+npm install
+cp .env.example .env
+npm run start:dev
+```
+
+## Environment Variables
+```
+DATABASE_URL=
+JWT_SECRET=
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+GITHUB_CALLBACK_URL=
+WEB_PORTAL_URL=
+```
