@@ -10,9 +10,13 @@ import { UsersModule } from './users/users.module';
 import { GlobalAuthGuard } from './auth/global-auth.guard';
 import { ApiVersionMiddleware } from './common/middleware/api-version.middleware';
 import { LoggingInterceptor } from './common/middleware/interceptors/logging.interceptor';
+import { CacheModule } from './cache/cache.module';
+import { IngestionModule } from './ingestion/ingestion.module';
 
 @Module({
   imports: [
+    CacheModule,
+    IngestionModule,
     PrismaModule,
     ProfilesModule,
     AuthModule,
@@ -32,8 +36,6 @@ import { LoggingInterceptor } from './common/middleware/interceptors/logging.int
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer
-      .apply(ApiVersionMiddleware)
-      .forRoutes('api/*path');
+    consumer.apply(ApiVersionMiddleware).forRoutes('api/*path');
   }
 }

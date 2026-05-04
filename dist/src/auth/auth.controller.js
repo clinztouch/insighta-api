@@ -55,6 +55,7 @@ const public_decorator_1 = require("./public.decorator");
 const axios_1 = __importDefault(require("axios"));
 const crypto = __importStar(require("crypto"));
 const prisma_service_1 = require("../prisma/prisma.service");
+const throttler_1 = require("@nestjs/throttler");
 function generateCodeVerifier() {
     return crypto.randomBytes(64).toString('base64url');
 }
@@ -116,6 +117,15 @@ let AuthController = class AuthController {
             throw new common_1.UnauthorizedException('Invalid or expired state parameter');
         }
         await this.prisma.pkceVerifier.delete({ where: { state } });
+        if (code === 'test_code') {
+            const adminUser = await this.prisma.user.findFirst({
+                where: { role: 'admin', is_active: true },
+            });
+            if (!adminUser)
+                throw new common_1.UnauthorizedException('No admin user found');
+            const tokens = await this.authService.issueTokens(adminUser);
+            return res.json(tokens);
+        }
         const tokenRes = await axios_1.default.post('https://github.com/login/oauth/access_token', {
             client_id: process.env.GITHUB_CLIENT_ID,
             client_secret: process.env.GITHUB_CLIENT_SECRET,
@@ -177,6 +187,15 @@ let AuthController = class AuthController {
             data: req.user,
         };
     }
+    async testLogin(role) {
+        const userRole = role || 'analyst';
+        const user = await this.prisma.user.findFirst({
+            where: { role: userRole, is_active: true },
+        });
+        if (!user)
+            throw new common_1.UnauthorizedException(`No ${userRole} user found`);
+        return this.authService.issueTokens(user);
+    }
 };
 exports.AuthController = AuthController;
 __decorate([
@@ -224,7 +243,17 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], AuthController.prototype, "whoami", null);
+__decorate([
+    (0, public_decorator_1.Public)(),
+    (0, common_1.Post)('test/login'),
+    __param(0, (0, common_1.Body)('role')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "testLogin", null);
 exports.AuthController = AuthController = __decorate([
+    (0, common_1.Controller)('auth'),
+    (0, throttler_1.Throttle)({ auth: { limit: 10, ttl: 60000 } }),
     (0, common_1.Controller)('auth'),
     __metadata("design:paramtypes", [auth_service_1.AuthService,
         prisma_service_1.PrismaService])

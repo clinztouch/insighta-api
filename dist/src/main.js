@@ -11,12 +11,14 @@ const http_exception_filter_1 = require("./filters/http-exception.filter");
 const cookie_parser_1 = __importDefault(require("cookie-parser"));
 const helmet_1 = __importDefault(require("helmet"));
 async function bootstrap() {
+    console.log('WEB_PORTAL_URL:', process.env.WEB_PORTAL_URL);
+    console.log('JWT_SECRET exists:', !!process.env.JWT_SECRET);
     const app = await core_1.NestFactory.create(app_module_1.AppModule);
     app.use((0, helmet_1.default)());
     app.use((0, cookie_parser_1.default)());
     app.enableCors({
         origin: [
-            process.env.WEB_PORTAL_URL || 'https://insighta-web-production-312d.up.railway.app',
+            process.env.WEB_PORTAL_URL || 'https://insighta-web-production-df68.up.railway.app',
             'http://localhost:3001',
         ],
         credentials: true,

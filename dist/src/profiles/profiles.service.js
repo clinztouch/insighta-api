@@ -16,12 +16,21 @@ exports.ProfilesService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
 const axios_1 = __importDefault(require("axios"));
+const cache_service_1 = require("../cache/cache.service");
+const query_normalizer_1 = require("../cache/query-normalizer");
 let ProfilesService = class ProfilesService {
     prisma;
-    constructor(prisma) {
+    cache;
+    constructor(prisma, cache) {
         this.prisma = prisma;
+        this.cache = cache;
     }
     async getProfiles(query, baseUrl = '/api/profiles') {
+        const cacheKey = (0, query_normalizer_1.normalizeQueryKey)(query);
+        const cached = await this.cache.get(cacheKey);
+        if (cached) {
+            return JSON.parse(cached);
+        }
         const where = {};
         if (query.gender)
             where.gender = query.gender;
@@ -72,7 +81,7 @@ let ProfilesService = class ProfilesService {
             params.set('page', String(p));
             return `${baseUrl}?${params.toString()}`;
         };
-        return {
+        const result = {
             status: 'success',
             page,
             limit,
@@ -85,12 +94,8 @@ let ProfilesService = class ProfilesService {
             },
             data,
         };
-    }
-    async getProfile(id) {
-        const profile = await this.prisma.profile.findUnique({ where: { id } });
-        if (!profile)
-            throw new common_1.NotFoundException('Profile not found');
-        return { status: 'success', data: profile };
+        await this.cache.set(cacheKey, JSON.stringify(result), 300);
+        return result;
     }
     async searchProfiles(q, query) {
         if (!q || !q.trim()) {
@@ -106,6 +111,8 @@ let ProfilesService = class ProfilesService {
             filters.gender = 'male';
         else if (/\bwomen\b/.test(input))
             filters.gender = 'female';
+        else if (/\bnigerian\b/.test(input))
+            filters.country_id = 'NG';
         if (/\bchildren\b|\bchild\b|\bkids?\b/.test(input))
             filters.age_group = 'child';
         else if (/\bteenagers?\b|\bteens?\b/.test(input))
@@ -122,7 +129,8 @@ let ProfilesService = class ProfilesService {
         const belowMatch = input.match(/\bbelow\s+(\d+)/);
         const olderMatch = input.match(/\bolder\s+than\s+(\d+)/);
         const youngerMatch = input.match(/\byounger\s+than\s+(\d+)/);
-        const betweenMatch = input.match(/\bbetween\s+(\d+)\s+and\s+(\d+)/);
+        const betweenMatch = input.match(/\bbetween\s+(?:ages?\s+)?(\d+)\s+and\s+(\d+)/);
+        const agedMatch = input.match(/\baged?\s+(\d+)[\s\-–]+(\d+)/);
         if (aboveMatch)
             filters.min_age = parseInt(aboveMatch[1]);
         if (belowMatch)
@@ -135,16 +143,22 @@ let ProfilesService = class ProfilesService {
             filters.min_age = parseInt(betweenMatch[1]);
             filters.max_age = parseInt(betweenMatch[2]);
         }
+        if (agedMatch) {
+            filters.min_age = parseInt(agedMatch[1]);
+            filters.max_age = parseInt(agedMatch[2]);
+        }
         const countryMap = {
-            nigeria: 'NG', ghana: 'GH', kenya: 'KE', ethiopia: 'ET',
+            nigeria: 'NG', nigerian: 'NG', ghana: 'GH', ghanaian: 'GH',
+            kenya: 'KE', kenyan: 'KE', ethiopia: 'ET', ethiopian: 'ET',
             tanzania: 'TZ', uganda: 'UG', senegal: 'SN', angola: 'AO',
             rwanda: 'RW', cameroon: 'CM', 'south africa': 'ZA', egypt: 'EG',
-            morocco: 'MA', tunisia: 'TN', algeria: 'DZ', mozambique: 'MZ',
-            zambia: 'ZM', zimbabwe: 'ZW', mali: 'ML', niger: 'NE',
-            chad: 'TD', sudan: 'SD', somalia: 'SO', madagascar: 'MG',
-            'ivory coast': 'CI', "côte d'ivoire": 'CI', benin: 'BJ',
-            togo: 'TG', guinea: 'GN', india: 'IN', australia: 'AU',
-            'united kingdom': 'GB', uk: 'GB', usa: 'US', 'united states': 'US',
+            moroccan: 'MA', morocco: 'MA', tunisia: 'TN', algeria: 'DZ',
+            mozambique: 'MZ', zambia: 'ZM', zimbabwe: 'ZW', mali: 'ML',
+            niger: 'NE', chad: 'TD', sudan: 'SD', somalia: 'SO',
+            madagascar: 'MG', 'ivory coast': 'CI', "côte d'ivoire": 'CI',
+            benin: 'BJ', togo: 'TG', guinea: 'GN', india: 'IN',
+            indian: 'IN', australia: 'AU', 'united kingdom': 'GB',
+            uk: 'GB', usa: 'US', 'united states': 'US',
         };
         for (const [countryName, code] of Object.entries(countryMap)) {
             if (input.includes(countryName)) {
@@ -152,11 +166,8 @@ let ProfilesService = class ProfilesService {
                 break;
             }
         }
-        const hasFilters = filters.gender ||
-            filters.age_group ||
-            filters.country_id ||
-            filters.min_age ||
-            filters.max_age;
+        const hasFilters = filters.gender || filters.age_group ||
+            filters.country_id || filters.min_age || filters.max_age;
         if (!hasFilters) {
             return { status: 'error', message: 'Unable to interpret query' };
         }
@@ -166,6 +177,12 @@ let ProfilesService = class ProfilesService {
             limit: query.limit ?? 10,
         };
         return this.getProfiles(merged, '/api/profiles/search');
+    }
+    async getProfile(id) {
+        const profile = await this.prisma.profile.findUnique({ where: { id } });
+        if (!profile)
+            throw new common_1.NotFoundException('Profile not found');
+        return { status: 'success', data: profile };
     }
     async createProfile(name) {
         const [genderRes, nationalizeRes] = await Promise.all([
@@ -179,9 +196,7 @@ let ProfilesService = class ProfilesService {
         const country_probability = topCountry?.probability || 0;
         const ageRes = await axios_1.default.get(`https://api.agify.io/?name=${encodeURIComponent(name)}`);
         const age = ageRes.data.age || 25;
-        const age_group = age < 13 ? 'child' :
-            age < 18 ? 'teenager' :
-                age < 65 ? 'adult' : 'senior';
+        const age_group = age < 13 ? 'child' : age < 18 ? 'teenager' : age < 65 ? 'adult' : 'senior';
         let country_name = country_id;
         try {
             const countryRes = await axios_1.default.get(`https://restcountries.com/v3.1/alpha/${country_id}`);
@@ -192,17 +207,9 @@ let ProfilesService = class ProfilesService {
         }
         const { v7: uuidv7 } = await import('uuid');
         const profile = await this.prisma.profile.create({
-            data: {
-                id: uuidv7(),
-                name,
-                gender,
-                gender_probability,
-                age,
-                age_group,
-                country_id,
-                country_name,
-                country_probability,
-            },
+            data: { id: uuidv7(), name, gender, gender_probability, age, age_group, country_id, country_name, country_probability },
+        });
+        await this.cache.invalidatePattern('profiles:').catch(() => {
         });
         return { status: 'success', data: profile };
     }
@@ -224,21 +231,16 @@ let ProfilesService = class ProfilesService {
             ? { [query.sort_by]: (query.order ?? 'asc') }
             : { created_at: 'desc' };
         const profiles = await this.prisma.profile.findMany({ where, orderBy });
-        const headers = [
-            'id', 'name', 'gender', 'gender_probability', 'age',
-            'age_group', 'country_id', 'country_name', 'country_probability', 'created_at',
-        ];
-        const rows = profiles.map((p) => [
-            p.id, p.name, p.gender, p.gender_probability, p.age,
-            p.age_group, p.country_id, p.country_name, p.country_probability,
-            p.created_at.toISOString(),
-        ].join(','));
+        const headers = ['id', 'name', 'gender', 'gender_probability', 'age', 'age_group', 'country_id', 'country_name', 'country_probability', 'created_at'];
+        const rows = profiles.map((p) => [p.id, p.name, p.gender, p.gender_probability, p.age, p.age_group,
+            p.country_id, p.country_name, p.country_probability, p.created_at.toISOString()].join(','));
         return [headers.join(','), ...rows].join('\n');
     }
 };
 exports.ProfilesService = ProfilesService;
 exports.ProfilesService = ProfilesService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        cache_service_1.CacheService])
 ], ProfilesService);
 //# sourceMappingURL=profiles.service.js.map

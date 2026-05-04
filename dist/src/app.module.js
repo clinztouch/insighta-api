@@ -19,23 +19,26 @@ const users_module_1 = require("./users/users.module");
 const global_auth_guard_1 = require("./auth/global-auth.guard");
 const api_version_middleware_1 = require("./common/middleware/api-version.middleware");
 const logging_interceptor_1 = require("./common/middleware/interceptors/logging.interceptor");
+const cache_module_1 = require("./cache/cache.module");
+const ingestion_module_1 = require("./ingestion/ingestion.module");
 let AppModule = class AppModule {
     configure(consumer) {
-        consumer
-            .apply(api_version_middleware_1.ApiVersionMiddleware)
-            .forRoutes('api/*path');
+        consumer.apply(api_version_middleware_1.ApiVersionMiddleware).forRoutes('api/*path');
     }
 };
 exports.AppModule = AppModule;
 exports.AppModule = AppModule = __decorate([
     (0, common_1.Module)({
         imports: [
+            cache_module_1.CacheModule,
+            ingestion_module_1.IngestionModule,
             prisma_module_1.PrismaModule,
             profiles_module_1.ProfilesModule,
             auth_module_1.AuthModule,
             users_module_1.UsersModule,
             throttler_1.ThrottlerModule.forRoot([
                 { name: 'default', ttl: 60000, limit: 60 },
+                { name: 'auth', ttl: 60000, limit: 10 },
             ]),
         ],
         controllers: [app_controller_1.AppController],

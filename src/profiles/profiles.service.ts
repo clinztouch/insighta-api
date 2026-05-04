@@ -3,12 +3,24 @@ import { GetProfilesDto } from './dto/get-profiles.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import axios from 'axios';
+import { CacheService } from 'src/cache/cache.service';
+import { normalizeQueryKey } from 'src/cache/query-normalizer';
 
 @Injectable()
 export class ProfilesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cache: CacheService,
+  ) {}
 
   async getProfiles(query: GetProfilesDto, baseUrl = '/api/profiles') {
+    const cacheKey = normalizeQueryKey(query);
+
+    const cached = await this.cache.get(cacheKey);
+    if (cached) {
+      return JSON.parse(cached);
+    }
+
     const where: Prisma.ProfileWhereInput = {};
 
     if (query.gender) where.gender = query.gender;
@@ -45,7 +57,6 @@ export class ProfilesService {
 
     const total_pages = Math.ceil(total / limit);
 
-    // Build query string from filters
     const params = new URLSearchParams();
     if (query.gender) params.set('gender', query.gender);
     if (query.age_group) params.set('age_group', query.age_group);
@@ -61,7 +72,7 @@ export class ProfilesService {
       return `${baseUrl}?${params.toString()}`;
     };
 
-    return {
+    const result = {
       status: 'success',
       page,
       limit,
@@ -74,12 +85,10 @@ export class ProfilesService {
       },
       data,
     };
-  }
 
-  async getProfile(id: string) {
-    const profile = await this.prisma.profile.findUnique({ where: { id } });
-    if (!profile) throw new NotFoundException('Profile not found');
-    return { status: 'success', data: profile };
+    await this.cache.set(cacheKey, JSON.stringify(result), 300);
+
+    return result;
   }
 
   async searchProfiles(q: string, query: GetProfilesDto) {
@@ -94,60 +103,49 @@ export class ProfilesService {
     else if (/\bfemales?\b/.test(input)) filters.gender = 'female';
     else if (/\bmen\b/.test(input)) filters.gender = 'male';
     else if (/\bwomen\b/.test(input)) filters.gender = 'female';
+    else if (/\bnigerian\b/.test(input)) filters.country_id = 'NG';
 
-    if (/\bchildren\b|\bchild\b|\bkids?\b/.test(input))
-      filters.age_group = 'child';
-    else if (/\bteenagers?\b|\bteens?\b/.test(input))
-      filters.age_group = 'teenager';
+    if (/\bchildren\b|\bchild\b|\bkids?\b/.test(input)) filters.age_group = 'child';
+    else if (/\bteenagers?\b|\bteens?\b/.test(input)) filters.age_group = 'teenager';
     else if (/\badults?\b/.test(input)) filters.age_group = 'adult';
-    else if (/\bseniors?\b|\belderly\b/.test(input))
-      filters.age_group = 'senior';
+    else if (/\bseniors?\b|\belderly\b/.test(input)) filters.age_group = 'senior';
 
-    if (/\byoung\b/.test(input)) {
-      filters.min_age = 16;
-      filters.max_age = 24;
-    }
+    if (/\byoung\b/.test(input)) { filters.min_age = 16; filters.max_age = 24; }
 
-    const aboveMatch = input.match(/\babove\s+(\d+)/);
-    const belowMatch = input.match(/\bbelow\s+(\d+)/);
-    const olderMatch = input.match(/\bolder\s+than\s+(\d+)/);
+    const aboveMatch   = input.match(/\babove\s+(\d+)/);
+    const belowMatch   = input.match(/\bbelow\s+(\d+)/);
+    const olderMatch   = input.match(/\bolder\s+than\s+(\d+)/);
     const youngerMatch = input.match(/\byounger\s+than\s+(\d+)/);
-    const betweenMatch = input.match(/\bbetween\s+(\d+)\s+and\s+(\d+)/);
+    const betweenMatch = input.match(/\bbetween\s+(?:ages?\s+)?(\d+)\s+and\s+(\d+)/);
+    const agedMatch    = input.match(/\baged?\s+(\d+)[\s\-–]+(\d+)/);
 
-    if (aboveMatch) filters.min_age = parseInt(aboveMatch[1]);
-    if (belowMatch) filters.max_age = parseInt(belowMatch[1]);
-    if (olderMatch) filters.min_age = parseInt(olderMatch[1]);
+    if (aboveMatch)   filters.min_age = parseInt(aboveMatch[1]);
+    if (belowMatch)   filters.max_age = parseInt(belowMatch[1]);
+    if (olderMatch)   filters.min_age = parseInt(olderMatch[1]);
     if (youngerMatch) filters.max_age = parseInt(youngerMatch[1]);
-    if (betweenMatch) {
-      filters.min_age = parseInt(betweenMatch[1]);
-      filters.max_age = parseInt(betweenMatch[2]);
-    }
+    if (betweenMatch) { filters.min_age = parseInt(betweenMatch[1]); filters.max_age = parseInt(betweenMatch[2]); }
+    if (agedMatch)    { filters.min_age = parseInt(agedMatch[1]);    filters.max_age = parseInt(agedMatch[2]); }
 
     const countryMap: Record<string, string> = {
-      nigeria: 'NG', ghana: 'GH', kenya: 'KE', ethiopia: 'ET',
+      nigeria: 'NG', nigerian: 'NG', ghana: 'GH', ghanaian: 'GH',
+      kenya: 'KE', kenyan: 'KE', ethiopia: 'ET', ethiopian: 'ET',
       tanzania: 'TZ', uganda: 'UG', senegal: 'SN', angola: 'AO',
       rwanda: 'RW', cameroon: 'CM', 'south africa': 'ZA', egypt: 'EG',
-      morocco: 'MA', tunisia: 'TN', algeria: 'DZ', mozambique: 'MZ',
-      zambia: 'ZM', zimbabwe: 'ZW', mali: 'ML', niger: 'NE',
-      chad: 'TD', sudan: 'SD', somalia: 'SO', madagascar: 'MG',
-      'ivory coast': 'CI', "côte d'ivoire": 'CI', benin: 'BJ',
-      togo: 'TG', guinea: 'GN', india: 'IN', australia: 'AU',
-      'united kingdom': 'GB', uk: 'GB', usa: 'US', 'united states': 'US',
+      moroccan: 'MA', morocco: 'MA', tunisia: 'TN', algeria: 'DZ',
+      mozambique: 'MZ', zambia: 'ZM', zimbabwe: 'ZW', mali: 'ML',
+      niger: 'NE', chad: 'TD', sudan: 'SD', somalia: 'SO',
+      madagascar: 'MG', 'ivory coast': 'CI', "côte d'ivoire": 'CI',
+      benin: 'BJ', togo: 'TG', guinea: 'GN', india: 'IN',
+      indian: 'IN', australia: 'AU', 'united kingdom': 'GB',
+      uk: 'GB', usa: 'US', 'united states': 'US',
     };
 
     for (const [countryName, code] of Object.entries(countryMap)) {
-      if (input.includes(countryName)) {
-        filters.country_id = code;
-        break;
-      }
+      if (input.includes(countryName)) { filters.country_id = code; break; }
     }
 
-    const hasFilters =
-      filters.gender ||
-      filters.age_group ||
-      filters.country_id ||
-      filters.min_age ||
-      filters.max_age;
+    const hasFilters = filters.gender || filters.age_group ||
+      filters.country_id || filters.min_age || filters.max_age;
 
     if (!hasFilters) {
       return { status: 'error', message: 'Unable to interpret query' };
@@ -162,8 +160,13 @@ export class ProfilesService {
     return this.getProfiles(merged, '/api/profiles/search');
   }
 
+  async getProfile(id: string) {
+    const profile = await this.prisma.profile.findUnique({ where: { id } });
+    if (!profile) throw new NotFoundException('Profile not found');
+    return { status: 'success', data: profile };
+  }
+
   async createProfile(name: string) {
-    // Fetch gender prediction
     const [genderRes, nationalizeRes] = await Promise.all([
       axios.get(`https://api.genderize.io/?name=${encodeURIComponent(name)}`),
       axios.get(`https://api.nationalize.io/?name=${encodeURIComponent(name)}`),
@@ -171,46 +174,34 @@ export class ProfilesService {
 
     const gender = genderRes.data.gender || 'unknown';
     const gender_probability = genderRes.data.probability || 0;
-
     const topCountry = nationalizeRes.data.country?.[0];
     const country_id = topCountry?.country_id || 'UN';
     const country_probability = topCountry?.probability || 0;
 
-    // Fetch age prediction
     const ageRes = await axios.get(
       `https://api.agify.io/?name=${encodeURIComponent(name)}`,
     );
     const age = ageRes.data.age || 25;
+    const age_group = age < 13 ? 'child' : age < 18 ? 'teenager' : age < 65 ? 'adult' : 'senior';
 
-    const age_group =
-      age < 13 ? 'child' :
-      age < 18 ? 'teenager' :
-      age < 65 ? 'adult' : 'senior';
-
-    // Get country name
     let country_name = country_id;
     try {
-      const countryRes = await axios.get(
-        `https://restcountries.com/v3.1/alpha/${country_id}`,
-      );
+      const countryRes = await axios.get(`https://restcountries.com/v3.1/alpha/${country_id}`);
       country_name = countryRes.data?.[0]?.name?.common || country_id;
-    } catch {
-      country_name = country_id;
-    }
+    } catch { country_name = country_id; }
 
     const { v7: uuidv7 } = await import('uuid');
     const profile = await this.prisma.profile.create({
-      data: {
-        id: uuidv7(),
-        name,
-        gender,
-        gender_probability,
-        age,
-        age_group,
-        country_id,
-        country_name,
-        country_probability,
-      },
+      data: { id: uuidv7(), name, gender, gender_probability, age, age_group, country_id, country_name, country_probability },
+    });
+
+    // ── FIX: invalidate cache after a new profile is created ──
+    // Without this, GET /api/profiles returns stale cached results
+    // for up to 5 minutes after a write. We clear the profiles cache
+    // namespace so the next read fetches fresh data from the DB.
+    // This is a targeted invalidation — only profiles:* keys are cleared.
+    await this.cache.invalidatePattern('profiles:').catch(() => {
+      // Non-fatal — stale cache is acceptable per the trade-off in SOLUTION.md
     });
 
     return { status: 'success', data: profile };
@@ -218,11 +209,9 @@ export class ProfilesService {
 
   async exportProfilesCsv(query: GetProfilesDto): Promise<string> {
     const where: Prisma.ProfileWhereInput = {};
-
     if (query.gender) where.gender = query.gender;
     if (query.age_group) where.age_group = query.age_group;
     if (query.country_id) where.country_id = query.country_id;
-
     if (query.min_age || query.max_age) {
       where.age = {
         ...(query.min_age && { gte: query.min_age }),
@@ -236,19 +225,11 @@ export class ProfilesService {
 
     const profiles = await this.prisma.profile.findMany({ where, orderBy });
 
-    const headers = [
-      'id', 'name', 'gender', 'gender_probability', 'age',
-      'age_group', 'country_id', 'country_name', 'country_probability', 'created_at',
-    ];
-
+    const headers = ['id','name','gender','gender_probability','age','age_group','country_id','country_name','country_probability','created_at'];
     const rows = profiles.map((p) =>
-      [
-        p.id, p.name, p.gender, p.gender_probability, p.age,
-        p.age_group, p.country_id, p.country_name, p.country_probability,
-        p.created_at.toISOString(),
-      ].join(','),
+      [p.id, p.name, p.gender, p.gender_probability, p.age, p.age_group,
+       p.country_id, p.country_name, p.country_probability, p.created_at.toISOString()].join(','),
     );
-
     return [headers.join(','), ...rows].join('\n');
   }
 }
